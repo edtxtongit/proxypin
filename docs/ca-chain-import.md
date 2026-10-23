@@ -31,5 +31,7 @@ both with and without the supplied root certificate.
 
 The `Android debugversion` Actions workflow publishes a release-mode APK with
 application ID `com.network.proxy.debugversion`. Native Kotlin packages and
-the Android namespace remain unchanged. The APK uses a CI-generated test
-signing key, not the upstream production signing key.
+the Android namespace remain unchanged. The workflow reuses the successful
+`zhou-kkk/proxypin-build` Android build configuration and publishes an APK
+artifact and a prerelease. It uses repository signing secrets if configured,
+otherwise a CI-generated test signing key, not the upstream production key.

@@ -6,37 +6,75 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  apk:
-    runs-on: ubuntu-22.04
+  build-apk:
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android/sdk/ndk \
+            /usr/local/lib/android/sdk/emulator \
+            /usr/local/lib/android/sdk/system-images
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af > /dev/null 2>&1 || true
+          df -h /
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: '3.47.7'
           cache: true
-      - name: Install native build tools
-        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config
-      - run: flutter pub get
-      - name: Certificate regression tests
-        run: flutter test test/p12_verify_test.dart test/cert_san_test.dart test/ca_chain_test.dart
-      - name: Create test signing key
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Gradle caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-v1-${{ hashFiles('android/**/build.gradle', 'android/settings.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-v1-
+
+      - name: Prepare signing config
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}
+          STORE_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
         run: |
-          keytool -genkeypair -noprompt -keystore android/debugversion.jks -storepass android -keypass android -alias debugversion -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ProxyPin DebugVersion"
-          printf 'storeFile=../debugversion.jks\nstorePassword=android\nkeyAlias=debugversion\nkeyPassword=android\n' > android/key.properties
-      - name: Build APK
-        run: flutter build apk --release --target-platform android-arm64,android-arm,android-x64
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > android/app/proxypin-ci.jks
+          else
+            STORE_PASS=android
+            KEY_PASS=android
+            ALIAS=debugversion
+            keytool -genkeypair -noprompt -keystore android/app/proxypin-ci.jks -storepass "$STORE_PASS" -keypass "$KEY_PASS" -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ProxyPin DebugVersion"
+          fi
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$GITHUB_WORKSPACE/android/app/proxypin-ci.jks" "$STORE_PASS" "$ALIAS" "$KEY_PASS" \
+            > android/key.properties
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: List artifacts
+        run: ls -la build/app/outputs/flutter-apk/
+
       - name: Verify delivery package ID
         run: |
           APK=build/app/outputs/flutter-apk/app-release.apk
@@ -49,3 +87,16 @@ jobs:
           name: proxypin-debugversion-apk
           path: proxypin-debugversion.apk
           retention-days: 14
+
+      - name: Create release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: debugversion-${{ github.run_number }}
+          name: ProxyPin debugversion ${{ github.run_number }}
+          prerelease: true
+          body: |
+            Capture CA chain import with RSA and EC signing.
+            Application ID: com.network.proxy.debugversion
+            Signed with a CI test key, not the official ProxyPin release key.
+          files: proxypin-debugversion.apk
+          fail_on_unmatched_files: true
