@@ -703,6 +703,7 @@ class Pkcs12 {
       var identifier = seq.elements!.elementAt(0) as ASN1ObjectIdentifier;
       switch (identifier.objectIdentifierAsString!) {
         case "1.2.840.113549.1.1.1": // rsaEncryption
+        case "1.2.840.10045.2.1":
           pems.insert(
             0,
             X509Utils.encodeASN1ObjectToPem(bagValueSeq, CryptoUtils.BEGIN_PRIVATE_KEY, CryptoUtils.END_PRIVATE_KEY),

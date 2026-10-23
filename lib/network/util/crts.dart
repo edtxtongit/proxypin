@@ -29,6 +29,7 @@ import 'package:proxypin/utils/lang.dart';
 
 import 'cache.dart';
 import 'cert/basic_constraints.dart';
+import 'cert/ca_chain.dart';
 import 'cert/cert_data.dart';
 import 'cert/extension.dart';
 import 'cert/key_usage.dart';
@@ -57,7 +58,9 @@ class CertificateManager {
   static X509CertificateData? _caCert;
 
   /// ca私钥
-  static late RSAPrivateKey _caPriKey;
+  static late PrivateKey _caPriKey;
+
+  static String _caChainPem = '';
 
   /// ca证书 subject DN 的原始 ASN.1 字节, 用作签发叶子证书的 issuer, 保证与 CA 二进制精确匹配
   static Uint8List? _caSubjectDnBytes;
@@ -131,7 +134,7 @@ class CertificateManager {
     var rsaPrivateKey = _serverKeyPair.privateKey as RSAPrivateKey;
 
     var securityContext = SecurityContext(withTrustedRoots: true)
-      ..useCertificateChainBytes(cer.codeUnits)
+      ..useCertificateChainBytes('$cer\n$_caChainPem'.codeUnits)
       ..allowLegacyUnsafeRenegotiation = true
       ..usePrivateKeyBytes(CryptoUtils.encodeRSAPrivateKeyToPemPkcs1(rsaPrivateKey).codeUnits);
 
@@ -150,7 +153,7 @@ class CertificateManager {
   /// 生成证书
   ///
   /// [remoteCert] 远程服务器真实证书, 若提供则复制其 Subject、SAN、有效期, 以通过客户端严格校验
-  static String generate(X509CertificateData caRoot, RSAPublicKey serverPubKey, RSAPrivateKey caPriKey, String host,
+  static String generate(X509CertificateData caRoot, RSAPublicKey serverPubKey, PrivateKey caPriKey, String host,
       {X509CertificateData? remoteCert}) {
     //默认 subject 模板, 以及仅包含域名本身的 SAN
     Map<String, String> x509Subject = {
@@ -283,14 +286,16 @@ class CertificateManager {
       //从项目目录加入ca根证书
       var caPemFile = await certificateFile();
       var caPem = await caPemFile.readAsString();
-      _caCert = X509Utils.x509CertificateFromPem(caPem);
+      var keyFile = await privateKeyFile();
+      final chain = CaCertificateChain.fromPems([await keyFile.readAsString(), caPem]);
+      _caCert = X509Utils.x509CertificateFromPem(chain.certificates.first);
       //提取 CA subject DN 原始字节, 供签发叶子证书时作为 issuer, 保证与 CA 二进制精确匹配(兼容 iOS 严格校验)
-      _caSubjectDnBytes = X509Utils.subjectDnBytesFromPem(caPem);
+      _caSubjectDnBytes = X509Utils.subjectDnBytesFromPem(chain.certificates.first);
       //根据CA证书subject来动态生成目标服务器证书的issuer和subject
 
       //从项目目录加入ca私钥
-      var keyFile = await privateKeyFile();
-      _caPriKey = CryptoUtils.rsaPrivateKeyFromPem(await keyFile.readAsString());
+      _caPriKey = chain.privateKey;
+      _caChainPem = chain.handshakePem;
 
       _state = StartState.initialized;
       _initializationCompleter.complete();
@@ -339,25 +344,23 @@ class CertificateManager {
   static Future<Uint8List> generatePkcs12(String? password) async {
     var caFile = await CertificateManager.certificateFile();
     var keyFile = await CertificateManager.privateKeyFile();
-    return Pkcs12.generatePkcs12(await keyFile.readAsString(), [await caFile.readAsString()], password: password);
+    return Pkcs12.generatePkcs12(await keyFile.readAsString(),
+        CaCertificateChain.splitPem(await caFile.readAsString()), password: password);
   }
 
   ///import p12文件
   static Future<void> importPkcs12(Uint8List pkcs12, String? password) async {
     var decodePkcs12 = Pkcs12.parsePkcs12(pkcs12, password: password);
+    final chain = CaCertificateChain.fromPems(decodePkcs12);
 
     var caFile = await CertificateManager.certificateFile();
     var keyFile = await CertificateManager.privateKeyFile();
-    if (decodePkcs12.length != 2) {
-      throw Exception('Invalid pkcs12 file');
-    }
-
-    await keyFile.writeAsString(decodePkcs12[0]);
-    await caFile.writeAsString(decodePkcs12[1]);
+    await keyFile.writeAsString(chain.keyPem);
+    await caFile.writeAsString(chain.pem);
 
     cleanCache();
     _state = StartState.uninitialized;
-    initCAConfig();
+    await initCAConfig();
   }
 
   /// 获取证书详细信息

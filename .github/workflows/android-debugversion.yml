@@ -1,0 +1,48 @@
+name: Android debugversion
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install native build tools
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config
+      - run: flutter pub get
+      - name: Certificate regression tests
+        run: flutter test test/p12_verify_test.dart test/cert_san_test.dart test/ca_chain_test.dart
+      - name: Create test signing key
+        run: |
+          keytool -genkeypair -noprompt -keystore android/debugversion.jks -storepass android -keypass android -alias debugversion -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ProxyPin DebugVersion"
+          printf 'storeFile=../debugversion.jks\nstorePassword=android\nkeyAlias=debugversion\nkeyPassword=android\n' > android/key.properties
+      - name: Build APK
+        run: flutter build apk --release --target-platform android-arm64,android-arm,android-x64
+      - name: Verify delivery package ID
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          test -s "$APK"
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n 1)
+          "$AAPT" dump badging "$APK" | head -n 1 | grep -F "name='com.network.proxy.debugversion'"
+          cp "$APK" proxypin-debugversion.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proxypin-debugversion-apk
+          path: proxypin-debugversion.apk
+          retention-days: 14

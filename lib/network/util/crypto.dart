@@ -11,6 +11,7 @@ import 'package:pointycastle/asn1/primitives/asn1_object_identifier.dart';
 import 'package:pointycastle/asn1/primitives/asn1_octet_string.dart';
 import 'package:pointycastle/asn1/primitives/asn1_sequence.dart';
 import 'package:pointycastle/asymmetric/api.dart';
+import 'package:pointycastle/ecc/api.dart';
 import 'package:pointycastle/key_generators/api.dart';
 import 'package:pointycastle/key_generators/rsa_key_generator.dart';
 import 'package:pointycastle/paddings/pkcs7.dart';
@@ -183,6 +184,39 @@ class CryptoUtils {
   static RSAPrivateKey rsaPrivateKeyFromPem(String pem) {
     var bytes = getBytesFromPEMString(pem);
     return rsaPrivateKeyFromDERBytes(bytes);
+  }
+
+  static PrivateKey privateKeyFromPem(String pem) {
+    final sequence = ASN1Parser(getBytesFromPEMString(pem)).nextObject() as ASN1Sequence;
+    final algorithm = sequence.elements![1] as ASN1Sequence;
+    final identifier = (algorithm.elements![0] as ASN1ObjectIdentifier).objectIdentifierAsString;
+    if (identifier == '1.2.840.113549.1.1.1') {
+      return rsaPrivateKeyFromPem(pem);
+    }
+    if (identifier == '1.2.840.10045.2.1') {
+      final curve = algorithm.elements![1] as ASN1ObjectIdentifier;
+      final parameters = ecParametersFromOid(curve.objectIdentifierAsString!);
+      final encodedKey = sequence.elements![2] as ASN1OctetString;
+      final key = ASN1Parser(encodedKey.valueBytes).nextObject() as ASN1Sequence;
+      final scalar = key.elements![1] as ASN1OctetString;
+      final privateValue = BigInt.parse(HexUtils.bytesToHex(scalar.valueBytes!), radix: 16);
+      if (privateValue <= BigInt.zero || privateValue >= parameters.n) {
+        throw ArgumentError('Invalid EC private key');
+      }
+      return ECPrivateKey(privateValue, parameters);
+    }
+    throw ArgumentError('Unsupported CA private key algorithm: $identifier');
+  }
+
+  static ECDomainParameters ecParametersFromOid(String oid) {
+    final name = switch (oid) {
+      '1.2.840.10045.3.1.7' => 'prime256v1',
+      '1.3.132.0.34' => 'secp384r1',
+      '1.3.132.0.35' => 'secp521r1',
+      '1.3.132.0.10' => 'secp256k1',
+      _ => throw ArgumentError('Unsupported EC curve: $oid'),
+    };
+    return ECDomainParameters(name);
   }
 
   //

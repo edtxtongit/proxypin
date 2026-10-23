@@ -145,7 +145,7 @@ class X509Utils {
   static String generateSelfSignedCertificate(
     X509CertificateData caRoot,
     RSAPublicKey publicKey,
-    RSAPrivateKey privateKey,
+    PrivateKey privateKey,
     int days, {
     List<String>? sans,
     String serialNumber = '1',
@@ -170,8 +170,11 @@ class X509Utils {
 
     // Add protocol
     var blockProtocol = ASN1Sequence();
-    blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString(caRoot.signatureAlgorithm));
-    blockProtocol.add(ASN1Null());
+    final signatureOid = privateKey is ECPrivateKey ? '1.2.840.10045.4.3.3' : '1.2.840.113549.1.1.11';
+    blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString(signatureOid));
+    if (privateKey is RSAPrivateKey) {
+      blockProtocol.add(ASN1Null());
+    }
     data.add(blockProtocol);
 
     issuer ??= Map.from(caRoot.subject);
@@ -274,7 +277,17 @@ class X509Utils {
     var outer = ASN1Sequence();
     outer.add(data);
     outer.add(blockProtocol);
-    var encode = _rsaSign(data.encode(), privateKey, _getDigestFromOi(caRoot.signatureAlgorithm));
+    final Uint8List encode;
+    if (privateKey is RSAPrivateKey) {
+      encode = _rsaSign(data.encode(), privateKey, _getDigestFromOi('sha256WithRSAEncryption'));
+    } else if (privateKey is ECPrivateKey) {
+      final signer = Signer('SHA-384/DET-ECDSA')
+        ..init(true, PrivateKeyParameter<ECPrivateKey>(privateKey));
+      final signature = signer.generateSignature(data.encode()) as ECSignature;
+      encode = ASN1Sequence(elements: [ASN1Integer(signature.r), ASN1Integer(signature.s)]).encode();
+    } else {
+      throw ArgumentError('Unsupported CA private key');
+    }
     outer.add(ASN1BitString(stringValues: encode));
 
     var chunks = Strings.chunk(base64Encode(outer.encode()), 64);
@@ -403,7 +416,7 @@ class X509Utils {
           if (seq.elements!.length == 3) {
             basicConstraints = _fetchBasicConstraintsFromExtension(seq.elements!.elementAt(2));
           } else {
-            basicConstraints = [null, null];
+            basicConstraints = _fetchBasicConstraintsFromExtension(seq.elements!.elementAt(1));
           }
 
           extensions.cA = basicConstraints[0];
