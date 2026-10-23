@@ -24,6 +24,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.7'
           cache: true
       - name: Install native build tools
         run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build pkg-config
