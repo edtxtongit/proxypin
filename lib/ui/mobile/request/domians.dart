@@ -14,9 +14,11 @@
  * limitations under the License.
  */
 
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:date_format/date_format.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_toastr/flutter_toastr.dart';
@@ -73,6 +75,11 @@ class DomainListState extends State<DomainList> with AutomaticKeepAliveClientMix
 
   bool changing = false;
 
+  Timer? _androidRefreshTimer;
+  bool _androidViewDirty = false;
+
+  bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
+
   bool sortDesc = true;
 
   AppLocalizations get localizations => AppLocalizations.of(context)!;
@@ -115,13 +122,17 @@ class DomainListState extends State<DomainList> with AutomaticKeepAliveClientMix
       return;
     }
 
-    view = [...domainList.where(filter)].reversed.toList();
+    if (_isAndroid) {
+      _androidViewDirty = true;
+    } else {
+      view = [...domainList.where(filter)].reversed.toList();
+    }
     changeState();
   }
 
   void addResponse(HttpResponse response) {
     HostAndPort? hostAndPort = response.request!.hostAndPort;
-    if (response.isWebSocket) {
+    if (response.isWebSocket && !_isAndroid) {
       add(response.request!);
     }
 
@@ -131,6 +142,9 @@ class DomainListState extends State<DomainList> with AutomaticKeepAliveClientMix
   }
 
   void clean() {
+    _androidRefreshTimer?.cancel();
+    _androidRefreshTimer = null;
+    _androidViewDirty = false;
     setState(() {
       view.clear();
       domainList.clear();
@@ -144,6 +158,9 @@ class DomainListState extends State<DomainList> with AutomaticKeepAliveClientMix
     for (var request in list) {
       containerMap[request.hostAndPort]?.remove(request);
       if (containerMap[request.hostAndPort]?.isEmpty ?? false) {
+        if (_isAndroid) {
+          containerMap.remove(request.hostAndPort);
+        }
         domainList.remove(request.hostAndPort);
         view.remove(request.hostAndPort);
       }
@@ -182,6 +199,20 @@ class DomainListState extends State<DomainList> with AutomaticKeepAliveClientMix
   }
 
   void changeState() {
+    if (_isAndroid) {
+      if (!mounted || _androidRefreshTimer != null) return;
+      _androidRefreshTimer = Timer(const Duration(milliseconds: 100), () {
+        _androidRefreshTimer = null;
+        if (!mounted) return;
+        setState(() {
+          if (_androidViewDirty) {
+            view = domainList.where(filter).toList().reversed.toList();
+            _androidViewDirty = false;
+          }
+        });
+      });
+      return;
+    }
     //防止频繁刷新
     if (!changing) {
       changing = true;
@@ -198,6 +229,7 @@ class DomainListState extends State<DomainList> with AutomaticKeepAliveClientMix
 
   @override
   void dispose() {
+    _androidRefreshTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }

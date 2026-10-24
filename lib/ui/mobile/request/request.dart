@@ -16,6 +16,7 @@
 import 'dart:io';
 
 import 'package:date_format/date_format.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
@@ -79,6 +80,8 @@ class RequestRow extends StatefulWidget {
 
 class RequestRowState extends State<RequestRow> {
   static ExpiringCache<String, Image> imageCache = ExpiringCache<String, Image>(const Duration(minutes: 5));
+  static const int maxAndroidIconEntries = 128;
+  static final LruCache<(String, int), Image> androidIconCache = LruCache(maxAndroidIconEntries);
   static const int maxAutoReadEntries = 5000;
   static LruCacheSet<String> autoReadRequests = LruCacheSet<String>(5000);
 
@@ -92,6 +95,7 @@ class RequestRowState extends State<RequestRow> {
 
   late HttpRequest request;
   HttpResponse? response;
+  Future<Uint8List>? _iconFuture;
   bool selected = false;
   Color? highlightColor; //高亮颜色
 
@@ -103,11 +107,40 @@ class RequestRowState extends State<RequestRow> {
     response = request.response;
     super.initState();
     // 注册响应刷新回调
-    widget.onMount?.call(() {
+    widget.onMount?.call(_refreshResponse);
+  }
+
+  void _refreshResponse() {
+    if (!mounted) return;
+    setState(() {
       response = request.response;
-      if (!mounted) return;
-      setState(() {});
     });
+  }
+
+  @override
+  void didUpdateWidget(covariant RequestRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    oldWidget.onUnmount?.call();
+    if (!identical(request, widget.request)) {
+      highlightColor = null;
+      _iconFuture = null;
+    }
+    request = widget.request;
+    response = request.response;
+    widget.onMount?.call(_refreshResponse);
+  }
+
+  @override
+  void deactivate() {
+    widget.onUnmount?.call();
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    response = request.response;
+    widget.onMount?.call(_refreshResponse);
   }
 
   @override
@@ -218,7 +251,7 @@ class RequestRowState extends State<RequestRow> {
   }
 
   Widget? appIcon() {
-    if (Platform.isIOS) {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       return null;
     }
     if (request.processInfo == null) {
@@ -227,23 +260,43 @@ class RequestRowState extends State<RequestRow> {
 
     //如果有缓存图标直接返回图标
     if (request.processInfo!.hasCacheIcon) {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        return _androidAppIcon(request.processInfo!.cacheIcon!);
+      }
       return imageCache.putIfAbsent(request.processInfo!.id, () {
         return Image.memory(request.processInfo!.cacheIcon!, width: 40, gaplessPlayback: true);
       });
     }
 
     return FutureBuilder(
-        future: request.processInfo!.getIcon(),
+        future: defaultTargetPlatform == TargetPlatform.android
+            ? _iconFuture ??= request.processInfo!.getIcon()
+            : request.processInfo!.getIcon(),
         builder: (BuildContext context, AsyncSnapshot<Uint8List> snapshot) {
           if (snapshot.hasData) {
+            if (defaultTargetPlatform == TargetPlatform.android) {
+              return _androidAppIcon(snapshot.data!);
+            }
             return Image.memory(snapshot.data!, width: 40);
           }
           return const SizedBox(width: 40);
         });
   }
 
+  Image _androidAppIcon(Uint8List bytes) {
+    final cacheWidth = (40 * MediaQuery.devicePixelRatioOf(context)).ceil();
+    final key = (request.processInfo!.id, cacheWidth);
+    final cached = androidIconCache.get(key);
+    if (cached != null) {
+      return cached;
+    }
+    final image = Image.memory(bytes, width: 40, cacheWidth: cacheWidth, gaplessPlayback: true);
+    androidIconCache.set(key, image);
+    return image;
+  }
+
   ///菜单
-  void menu(details) {
+  void menu(LongPressStartDetails details) {
     setState(() {
       selected = true;
     });

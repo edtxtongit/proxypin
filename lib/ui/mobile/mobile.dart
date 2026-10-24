@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
@@ -260,33 +261,38 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
             valueListenable: _selectIndex,
             builder: (context, index, child) {
               var theme = Theme.of(context);
+              var isAndroid = defaultTargetPlatform == TargetPlatform.android;
               return Scaffold(
                   body: IndexedStack(index: index, children: navigationView),
                   // 实心底导航（放弃毛玻璃：真机上模糊效果不明显，且 extendBody 会引入一系列页尾遮挡问题）
                   bottomNavigationBar: widget.appConfiguration.bottomNavigation
                       ? Container(
-                          decoration: BoxDecoration(
-                              color: theme.colorScheme.surface,
-                              border: Border(
-                                  top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.6), width: 0.5))),
+                          decoration: isAndroid
+                              ? null
+                              : BoxDecoration(
+                                  color: theme.colorScheme.surface,
+                                  border: Border(
+                                      top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.6), width: 0.5))),
                           child: SafeArea(
                               top: false,
+                              bottom: !isAndroid,
                               child: Theme(
                                 data: theme.copyWith(splashColor: Colors.transparent),
                                 child: BottomNavigationBar(
                                   type: BottomNavigationBarType.fixed,
-                                  backgroundColor: Colors.transparent,
-                                  iconSize: 20,
+                                  backgroundColor: isAndroid ? theme.colorScheme.surface : Colors.transparent,
+                                  iconSize: isAndroid ? 23 : 20,
                                   // 设计稿 .p-bn：图标 19 + 9px 文字标签
-                                  showSelectedLabels: true,
-                                  showUnselectedLabels: true,
-                                  selectedFontSize: 10,
-                                  unselectedFontSize: 10,
+                                  showSelectedLabels: !isAndroid,
+                                  showUnselectedLabels: !isAndroid,
+                                  selectedFontSize: isAndroid ? 2 : 10,
+                                  unselectedFontSize: isAndroid ? 2 : 10,
                                   elevation: 0,
                                   items: [
                                     // 设计稿线条 SVG 图标：list / wrench / sliders / gear（工具箱第 2、配置第 3）
                                     // 与桌面 rail 首项同款标签（设计稿底导航「请求」）
-                                    _navItem(context, 'list', localizations.request, index == 0),
+                                    _navItem(context, 'list', isAndroid ? localizations.requests : localizations.request,
+                                        index == 0),
                                     _navItem(context, 'wrench', localizations.toolbox, index == 1),
                                     _navItem(context, 'sliders', localizations.config, index == 2),
                                     _navItem(context, 'gear', localizations.setting, index == 3),
@@ -299,13 +305,20 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
             }));
   }
 
-  /// 底导航项：设计稿线条 SVG 图标，选中主色 / 未选中灰
+  /// 底导航项：Android 使用经典 Material 图标，其他平台保留 SVG 图标。
   BottomNavigationBarItem _navItem(BuildContext context, String icon, String label, bool selected) {
     var theme = Theme.of(context);
     return BottomNavigationBarItem(
         tooltip: label,
-        icon: SvgIcon(icon,
-            size: 20, color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
+        icon: defaultTargetPlatform == TargetPlatform.android
+            ? Icon(switch (icon) {
+                'list' => Icons.workspaces_outlined,
+                'wrench' => Icons.hardware_outlined,
+                'sliders' => Icons.description_outlined,
+                _ => Icons.settings_outlined,
+              })
+            : SvgIcon(icon,
+                size: 20, color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
         label: label);
   }
 

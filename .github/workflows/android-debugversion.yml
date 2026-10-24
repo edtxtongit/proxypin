@@ -96,6 +96,8 @@ jobs:
           prerelease: true
           body: |
             Capture CA chain import with RSA and EC signing.
+            Android classic UI with shared and display-sized app icons, bounded UI caches, and batched domain updates.
+            Existing capture, scripting, replay, certificate, and debugging features are retained.
             Application ID: com.network.proxy.debugversion
             Signed with a CI test key, not the official ProxyPin release key.
           files: proxypin-debugversion.apk

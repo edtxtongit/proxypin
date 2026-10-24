@@ -15,8 +15,8 @@
  */
 
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:proxypin/mcp/mcp_service.dart';
@@ -67,36 +67,56 @@ Future<void> navigator(BuildContext context, Widget widget) async {
   }
 }
 
-/// 配置/设置页通用：白卡片容器（新风格：#E4E6EB 发丝边、10 圆角）
+/// 配置/设置页通用卡片容器。
 Widget menuCard(BuildContext context, List<Widget> children) {
   var theme = Theme.of(context);
+  var isAndroid = defaultTargetPlatform == TargetPlatform.android;
   return Card(
       elevation: 0,
-      margin: EdgeInsets.zero,
-      color: theme.colorScheme.surface,
-      clipBehavior: Clip.antiAlias,
+      margin: isAndroid ? const EdgeInsets.all(4) : EdgeInsets.zero,
+      color: isAndroid ? Colors.transparent : theme.colorScheme.surface,
+      clipBehavior: isAndroid ? Clip.none : Clip.antiAlias,
       shape: RoundedRectangleBorder(
-          side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.55)),
+          side: BorderSide(color: theme.dividerColor.withValues(alpha: isAndroid ? 0.13 : 0.55)),
           borderRadius: BorderRadius.circular(10)),
       child: Column(children: children));
 }
 
-/// 配置/设置页通用入口行：28px 语义色淡色块图标（[iconColor]，见 AppColors）+ 15px 标题 + 灰色 chevron。
-/// 块/图标尺寸按真机可读性放大（设计稿 22/13 → 28/17，图标/块 ≈0.6 不变）。
+/// 配置/设置页通用入口行：Android 使用经典图标，其他平台保留语义色块。
 /// [status] 行尾状态摘要（对齐桌面端流量控制页），启用时 [statusOn] 置绿。
 Widget menuTile(BuildContext context, String icon, String title, Future<void> Function() onTap,
-    {String? status, bool statusOn = false, required Color iconColor}) {
+    {String? status, bool statusOn = false, required Color iconColor, bool showAndroidIcon = true}) {
   var theme = Theme.of(context);
-  var chevron = Icon(Icons.keyboard_arrow_right, size: 18, color: theme.colorScheme.onSurfaceVariant);
+  var isAndroid = defaultTargetPlatform == TargetPlatform.android;
+  var chevron = Icon(isAndroid && showAndroidIcon ? Icons.arrow_forward_ios : Icons.keyboard_arrow_right,
+      size: isAndroid ? (showAndroidIcon ? 16 : 24) : 18, color: theme.colorScheme.onSurfaceVariant);
   return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-      leading: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-              color: AppColors.tint(iconColor, theme.brightness), borderRadius: BorderRadius.circular(7)),
-          child: Center(child: SvgIcon(icon, size: 17, color: AppColors.icon(iconColor, theme.brightness)))),
-      title: Text(title, style: const TextStyle(fontSize: 15)),
+      contentPadding: EdgeInsets.symmetric(horizontal: isAndroid ? 16 : 14),
+      leading: isAndroid
+          ? showAndroidIcon
+              ? Icon(
+                  switch (icon) {
+                    'star' => Icons.favorite_outline,
+                    'clock' => Icons.history,
+                    'lines' => Icons.domain,
+                    'block' => Icons.block_flipped,
+                    'pencil' => Icons.edit_outlined,
+                    'swap' => Icons.swap_horiz_outlined,
+                    'key' => Icons.lock_outline,
+                    'code' => Icons.javascript_outlined,
+                    'breakpoint' => Icons.bug_report_outlined,
+                    'globe' => Icons.public,
+                    _ => Icons.settings_outlined,
+                  },
+                  color: theme.colorScheme.primary.withValues(alpha: 0.85))
+              : null
+          : Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                  color: AppColors.tint(iconColor, theme.brightness), borderRadius: BorderRadius.circular(7)),
+              child: Center(child: SvgIcon(icon, size: 17, color: AppColors.icon(iconColor, theme.brightness)))),
+      title: Text(title, style: TextStyle(fontSize: isAndroid ? 16 : 15)),
       trailing: status == null
           ? chevron
           : Row(mainAxisSize: MainAxisSize.min, children: [
@@ -127,9 +147,15 @@ Widget glyphTile(BuildContext context, String glyph, Color color) {
                   color: AppColors.icon(color, theme.brightness)))));
 }
 
-/// 卡片内行分隔线：indent 对齐标题文字（带图标行 58 = 14 内边距 + 28 图标 + 16 间隔，无图标行 14）
-Widget menuDivider(BuildContext context, {double indent = 58}) =>
-    Divider(height: 0.5, thickness: 0.5, indent: indent, color: Theme.of(context).dividerColor.withValues(alpha: 0.35));
+/// 卡片内行分隔线。
+Widget menuDivider(BuildContext context, {double indent = 58}) {
+  var isAndroid = defaultTargetPlatform == TargetPlatform.android;
+  return Divider(
+      height: isAndroid ? 0 : 0.5,
+      thickness: isAndroid ? 0.3 : 0.5,
+      indent: isAndroid ? 0 : indent,
+      color: Theme.of(context).dividerColor.withValues(alpha: isAndroid ? 0.22 : 0.35));
+}
 
 /// 配置页：收藏/历史 + 流量控制与网络相关配置入口。
 /// 流量控制各行尾部展示状态摘要（未开启 / 启用中 · N 条规则），与桌面端「流量控制」页口径一致。
@@ -192,8 +218,10 @@ class _ConfigPageState extends State<ConfigPage> {
   @override
   Widget build(BuildContext context) {
     AppLocalizations localizations = AppLocalizations.of(context)!;
+    var isAndroid = defaultTargetPlatform == TargetPlatform.android;
     var iconColor = Theme.of(context).colorScheme.onSurfaceVariant;
-    var arrow = Icon(Icons.keyboard_arrow_right, size: 18, color: iconColor);
+    var arrow = Icon(isAndroid ? Icons.arrow_forward_ios : Icons.keyboard_arrow_right,
+        size: isAndroid ? 16 : 18, color: iconColor);
 
     return Scaffold(
         appBar: PreferredSize(
@@ -287,17 +315,19 @@ class _ConfigPageState extends State<ConfigPage> {
                 iconColor: AppColors.breakpoint),
             menuDivider(context),
             WeakNetworkMenuTile(
-                leading: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                        color: AppColors.tint(AppColors.weakNetwork, Theme.of(context).brightness),
-                        borderRadius: BorderRadius.circular(7)),
-                    child: Center(
-                        child: SvgIcon('zap',
-                            size: 17, color: AppColors.icon(AppColors.weakNetwork, Theme.of(context).brightness)))),
-                titleStyle: const TextStyle(fontSize: 15),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                leading: isAndroid
+                    ? Icon(Icons.speed, color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.85))
+                    : Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                            color: AppColors.tint(AppColors.weakNetwork, Theme.of(context).brightness),
+                            borderRadius: BorderRadius.circular(7)),
+                        child: Center(
+                            child: SvgIcon('zap',
+                                size: 17, color: AppColors.icon(AppColors.weakNetwork, Theme.of(context).brightness)))),
+                titleStyle: TextStyle(fontSize: isAndroid ? 16 : 15),
+                contentPadding: EdgeInsets.symmetric(horizontal: isAndroid ? 16 : 14),
                 trailing: arrow,
                 showStatus: true),
             menuDivider(context),
@@ -364,7 +394,8 @@ class _SettingPageState extends State<SettingPage> {
     AppLocalizations localizations = AppLocalizations.of(context)!;
     bool isCN = Localizations.localeOf(context) == const Locale.fromSubtags(languageCode: 'zh');
 
-    const titleStyle = TextStyle(fontSize: 15);
+    var isAndroid = defaultTargetPlatform == TargetPlatform.android;
+    var titleStyle = TextStyle(fontSize: isAndroid ? 16 : 15);
 
     return Scaffold(
         appBar: PreferredSize(
@@ -377,11 +408,11 @@ class _SettingPageState extends State<SettingPage> {
           menuCard(context, [
             menuTile(context, 'lock', localizations.httpsProxy, () async {
               navigator(context, MobileSslWidget(proxyServer: proxyServer));
-            }, iconColor: AppColors.httpsProxy),
+            }, iconColor: AppColors.httpsProxy, showAndroidIcon: false),
             menuDivider(context),
             menuTile(context, 'funnel', localizations.filter, () async {
               navigator(context, FilterMenu(proxyServer: proxyServer));
-            }, iconColor: AppColors.filter),
+            }, iconColor: AppColors.filter, showAndroidIcon: false),
           ]),
           const SizedBox(height: 12),
           // Port and switches
@@ -390,19 +421,21 @@ class _SettingPageState extends State<SettingPage> {
                 proxyServer: proxyServer,
                 title: '${localizations.proxy}${isCN ? '' : ' '}${localizations.port}',
                 textStyle: titleStyle,
-                leading: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                        color: AppColors.tint(AppColors.proxyPort, Theme.of(context).brightness),
-                        borderRadius: BorderRadius.circular(7)),
-                    child: Center(
-                        child: SvgIcon('server',
-                            size: 17, color: AppColors.icon(AppColors.proxyPort, Theme.of(context).brightness))))),
+                leading: isAndroid
+                    ? null
+                    : Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                            color: AppColors.tint(AppColors.proxyPort, Theme.of(context).brightness),
+                            borderRadius: BorderRadius.circular(7)),
+                        child: Center(
+                            child: SvgIcon('server',
+                                size: 17, color: AppColors.icon(AppColors.proxyPort, Theme.of(context).brightness))))),
             menuDivider(context),
-            if (Platform.isAndroid)
+            if (isAndroid)
               ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+                  contentPadding: EdgeInsets.symmetric(horizontal: isAndroid ? 16 : 14),
                   title: Text(localizations.systemProxy, style: titleStyle),
                   trailing: SwitchWidget(
                       value: configuration.enableSystemProxy,
@@ -411,11 +444,11 @@ class _SettingPageState extends State<SettingPage> {
                         configuration.enableSystemProxy = value;
                         proxyServer.configuration.flushConfig();
                       })),
-            if (Platform.isAndroid) menuDivider(context),
+            if (isAndroid) menuDivider(context),
             ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-                leading: glyphTile(context, 'S5', AppColors.socks5),
-                title: const Text("SOCKS5", style: titleStyle),
+                contentPadding: EdgeInsets.symmetric(horizontal: isAndroid ? 16 : 14),
+                leading: isAndroid ? null : glyphTile(context, 'S5', AppColors.socks5),
+                title: Text("SOCKS5", style: titleStyle),
                 trailing: SwitchWidget(
                     value: configuration.enableSocks5,
                     scale: 0.8,
@@ -425,8 +458,8 @@ class _SettingPageState extends State<SettingPage> {
                     })),
             menuDivider(context),
             ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-                leading: glyphTile(context, 'H2', AppColors.http2),
+                contentPadding: EdgeInsets.symmetric(horizontal: isAndroid ? 16 : 14),
+                leading: isAndroid ? null : glyphTile(context, 'H2', AppColors.http2),
                 title: Text(localizations.enabledHTTP2, style: titleStyle),
                 trailing: SwitchWidget(
                     value: configuration.enabledHttp2,
@@ -438,12 +471,12 @@ class _SettingPageState extends State<SettingPage> {
             menuDivider(context),
             menuTile(context, 'arrow_out', localizations.externalProxy, () async {
               showDialog(context: context, builder: (_) => ExternalProxyDialog(configuration: proxyServer.configuration));
-            }, iconColor: AppColors.externalProxy),
+            }, iconColor: AppColors.externalProxy, showAndroidIcon: false),
             menuDivider(context),
             // 忽略域名为独立编辑页（设计稿 tag-4：卡内嵌输入体验差，与入口行形态统一）
             menuTile(context, 'minus_circle', localizations.proxyIgnoreDomain, () async {
               await navigator(context, ProxyIgnoreDomainPage(configuration: proxyServer.configuration));
-            }, iconColor: AppColors.proxyIgnoreDomain),
+            }, iconColor: AppColors.proxyIgnoreDomain, showAndroidIcon: false),
           ]),
           const SizedBox(height: 12),
           menuCard(context, [
@@ -453,17 +486,18 @@ class _SettingPageState extends State<SettingPage> {
               if (mounted) setState(() => _mcpRunning = McpService.instance.isRunning);
             },
                 iconColor: AppColors.mcp,
+                showAndroidIcon: false,
                 // 行尾仅运行中时显示绿「运行中」（设计稿 tag-3）；停止是常态不显示
                 status: _mcpRunning ? localizations.statusRunning : null,
                 statusOn: true),
             menuDivider(context),
             menuTile(context, 'sliders', localizations.preference, () async {
               navigator(context, Preference(proxyServer: proxyServer, appConfiguration: appConfiguration));
-            }, iconColor: AppColors.preference),
+            }, iconColor: AppColors.preference, showAndroidIcon: false),
             menuDivider(context),
             menuTile(context, 'info', localizations.about, () async {
               navigator(context, const About());
-            }, iconColor: AppColors.about),
+            }, iconColor: AppColors.about, showAndroidIcon: false),
           ]),
           const SizedBox(height: 8),
         ]));

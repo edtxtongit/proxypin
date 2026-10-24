@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:collection';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_toastr/flutter_toastr.dart';
@@ -51,7 +53,7 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
 
   ///显示的请求列表 最新的在前面
   Queue<HttpRequest> view = Queue();
-  bool changing = false;
+  Timer? _refreshTimer;
 
   ///请求id对应的响应刷新回调
   final Map<String, VoidCallback> responseCallbacks = {};
@@ -84,14 +86,27 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
     highlightListener = () {
       //回调时机在高亮设置页面dispose之后。所以需要在下一帧刷新，否则会报错
       WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-        setState(() {});
+        if (mounted) {
+          setState(() {});
+        }
       });
     };
     KeywordHighlights.addListener(highlightListener);
   }
 
   @override
+  void didUpdateWidget(covariant RequestSequence oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.selectionController, widget.selectionController)) {
+      oldWidget.selectionController.selectedIds.removeListener(selectionListener);
+      widget.selectionController.selectedIds.addListener(selectionListener);
+    }
+  }
+
+  @override
   void dispose() {
+    _refreshTimer?.cancel();
+    responseCallbacks.clear();
     widget.selectionController.selectedIds.removeListener(selectionListener);
     KeywordHighlights.removeListener(highlightListener);
     super.dispose();
@@ -115,7 +130,10 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
 
   ///添加响应
   void addResponse(HttpResponse response) {
-    final callback = responseCallbacks.remove(response.request?.requestId);
+    final requestId = response.request?.requestId;
+    final callback = defaultTargetPlatform == TargetPlatform.android
+        ? responseCallbacks[requestId]
+        : responseCallbacks.remove(requestId);
     callback?.call();
 
     if (searchModel == null || searchModel!.isEmpty || response.request == null) {
@@ -125,7 +143,11 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
     //搜索视图
     if (searchModel?.filter(response.request!, response) == true && callback == null) {
       if (!view.contains(response.request)) {
-        view.addFirst(response.request!);
+        if (defaultTargetPlatform == TargetPlatform.android && !sortDesc) {
+          view.addLast(response.request!);
+        } else {
+          view.addFirst(response.request!);
+        }
         changeState();
       }
     }
@@ -200,14 +222,15 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
 
   void changeState() {
     //防止频繁刷新
-    if (!changing) {
-      changing = true;
-      Future.delayed(const Duration(milliseconds: 350), () {
-        setState(() {
-          changing = false;
-        });
-      });
+    if (!mounted || _refreshTimer != null) {
+      return;
     }
+    _refreshTimer = Timer(const Duration(milliseconds: 350), () {
+      _refreshTimer = null;
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -232,7 +255,8 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
                 controller: PrimaryScrollController.maybeOf(context),
                 child: ListView.separated(
                     controller: PrimaryScrollController.maybeOf(context),
-                    scrollCacheExtent: ScrollCacheExtent.viewport(2.0),
+                    scrollCacheExtent:
+                        ScrollCacheExtent.viewport(defaultTargetPlatform == TargetPlatform.android ? 0.5 : 2.0),
                     separatorBuilder: (context, index) =>
                         Divider(thickness: 0.2, height: 0, color: Theme.of(context).dividerColor),
                     itemCount: view.length,
@@ -243,6 +267,7 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
                       }
                       final request = view.elementAt(index);
                       final requestId = request.requestId;
+                      VoidCallback? mountedCallback;
 
                       return RequestRow(
                           key: ValueKey(requestId),
@@ -255,8 +280,15 @@ class RequestSequenceState extends State<RequestSequence> with AutomaticKeepAliv
                               onDeleteSelected: deleteSelected,
                               onExportSelected: exportSelected,
                               onRepeatSelected: repeatSelected),
-                          onMount: (callback) => responseCallbacks[requestId] = callback,
-                          onUnmount: () => responseCallbacks.remove(requestId),
+                          onMount: (callback) {
+                            mountedCallback = callback;
+                            responseCallbacks[requestId] = callback;
+                          },
+                          onUnmount: () {
+                            if (identical(responseCallbacks[requestId], mountedCallback)) {
+                              responseCallbacks.remove(requestId);
+                            }
+                          },
                           onRemove: (item) {
                             setState(() {
                               view.remove(item);

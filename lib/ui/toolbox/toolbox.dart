@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:proxypin/network/bin/server.dart';
@@ -42,6 +43,15 @@ class _ToolboxState extends State<Toolbox> {
   /// 桌面端 = Divider + 14px 标题 + 裸宫格（首组无标题，[desktopHeader] 控制）
   Widget _group(String label, List<Widget> items, {bool desktopHeader = true}) {
     var theme = Theme.of(context);
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (desktopHeader) ...[
+          const Divider(thickness: 0.3),
+          Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        ],
+        Wrap(spacing: 6, children: items),
+      ]);
+    }
     if (mobile) {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
@@ -76,11 +86,15 @@ class _ToolboxState extends State<Toolbox> {
   Widget build(BuildContext context) {
     return IconTheme(
         // 设计稿 .tb-item svg：20px（全局 IconTheme 统一，移动端共用）
-        data: IconTheme.of(context).copyWith(color: IconTheme.of(context).color?.withValues(alpha: 0.65), size: 20),
+        data: IconTheme.of(context).copyWith(
+            color: IconTheme.of(context).color?.withValues(alpha: 0.65),
+            size: defaultTargetPlatform == TargetPlatform.android ? 24 : 20),
         child: SingleChildScrollView(
             child: Container(
           // 手机端卡片/标题自带水平留白（桌面端保持 10）
-          padding: mobile ? EdgeInsets.zero : const EdgeInsets.all(10),
+          padding: mobile && defaultTargetPlatform != TargetPlatform.android
+              ? EdgeInsets.zero
+              : const EdgeInsets.all(10),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,7 +328,8 @@ class IconText extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final label = text;
-    final mobile = Platforms.isMobile();
+    final android = defaultTargetPlatform == TargetPlatform.android;
+    final mobile = Platforms.isMobile() && !android;
     // 手机端按设计稿 p-tbt：卡内 25% 定宽（卡 margin 12*2 + 卡 padding 4*2），
     // 图标收进 48px 语义色淡色块（8–10% 淡底 + 降饱和彩色图标，设计稿 38/19 按真机可读性放大 1.25），
     // 12.5px 标签；图标沿用现有 Material 图标
@@ -333,8 +348,10 @@ class IconText extends StatelessWidget {
           child: Container(
             width: cellWidth,
             // 桌面端按设计稿 .tb-item 收紧：宽 84、内边距 8/9、12.5px 标签（原 92 / 12/10 / 14px 偏大）
-            padding: EdgeInsets.symmetric(horizontal: mobile ? 4 : 8, vertical: mobile ? 4 : 9),
-            constraints: mobile ? null : const BoxConstraints(minWidth: 84),
+            padding: android
+                ? const EdgeInsets.symmetric(horizontal: 12, vertical: 10)
+                : EdgeInsets.symmetric(horizontal: mobile ? 4 : 8, vertical: mobile ? 4 : 9),
+            constraints: mobile ? null : BoxConstraints(minWidth: android ? 92 : 84),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -352,7 +369,10 @@ class IconText extends StatelessWidget {
                 else
                   Icon(icon),
                 SizedBox(height: mobile ? 5 : 6),
-                Text(label, style: const TextStyle(fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(label,
+                    style: TextStyle(fontSize: android ? 14 : 12.5),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
